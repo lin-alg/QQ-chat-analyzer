@@ -595,8 +595,8 @@
         }
 
         function renderOverview(data) {
-            const card = document.getElementById('overviewCard');
-            const startDate = new Date(data.statistics.timeRange.start).toLocaleDateString('zh-CN', {
+        const card = document.getElementById('overviewCard');
+        const startDate = new Date(data.statistics.timeRange.start).toLocaleDateString('zh-CN', {
             year: 'numeric',
             month: 'numeric',
             day: 'numeric'
@@ -606,10 +606,17 @@
             month: 'numeric',
             day: 'numeric'
         });
+        
+        // 获取总消息数，如果没有则显示 0
+        const totalMsg = data.statistics.totalMessages || 0;
 
         card.innerHTML = `
             <h2>📊 聊天概览 - ${data.chatInfo.name || '未命名群聊'}</h2>
             <div class="stats-grid">
+                <div class="stat-box">
+                    <span class="stat-num">${totalMsg.toLocaleString()}</span>
+                    <span class="stat-label">消息总量</span>
+                </div>
                 <div class="stat-box">
                     <span class="stat-num" style="font-size:1.2rem; line-height:2.2rem">${startDate}</span>
                     <span class="stat-label">开始时间</span>
@@ -620,7 +627,7 @@
                 </div>
             </div>
         `;
-        }
+    }
         
         // === 核心修改：接收 excludedQQs 参数并在热词统计时跳过，并更新英文正则匹配逻辑 ===
         function analyzeContent(messages, excludedQQs) {
