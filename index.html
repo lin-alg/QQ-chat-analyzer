@@ -6,8 +6,8 @@
 
     <title>QQ聊天记录深度分析器 v2.0</title>
 
-    <!-- 引入 Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <style>
         :root {
         --primary: #3b82f6;
@@ -252,12 +252,16 @@
     .emoji-img:hover { transform: scale(1.2); }
 
     .cloud-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 15px;
-        justify-content: center;
-        padding: 20px;
-        min-height: 150px;
+        width: 100%;
+        height: 400px; 
+        position: relative;
+        overflow: hidden;
+        background: radial-gradient(circle, #ffffff 0%, #f3f4f6 100%); 
+    }
+    canvas {
+        max-width: 100%;
+        height: auto;
+        display: block;
     }
     .tag {
         background: var(--bg);
@@ -366,6 +370,7 @@
             <div class="file-upload-wrapper">
                 <input type="file" id="fileInput" accept=".json" style="flex: 1;">
                 <button onclick="startAnalysis()">🚀 开始分析</button>
+                <button id="exportBtn" onclick="exportToImage()" style="background-color: #10b981; display: none;">📸 导出长图</button>
             </div>
             <textarea id="jsonInput" placeholder="或者直接将 JSON 内容粘贴到这里..."></textarea>
             
@@ -376,17 +381,17 @@
             </label>
             <div id="exclusionInputWrapper" class="exclusion-input-wrapper" style="display: none;">
                 <p style="font-size: 0.9rem; color: var(--text-sub); margin: 5px 0;">请按行输入要排除的成员 QQ 号：</p>
-                <textarea id="excludedQQList" class="qq-input" placeholder="例如：
+                <textarea id="excludedQQList" class="qq-input" placeholder="每行输入一个QQ号">
+例如：
+2854196310（Q群管家）
 10001
-10002
-2854196310(Q群管家)
-        "></textarea>
+10002</textarea>
             </div>
 
             <!-- 新增复选框 -->
             <label style="margin-top:10px; display:block;">
                 <input type="checkbox" id="dedupCheckbox">
-                不受刷屏狗的影响（去重统计）
+                不受刷屏的影响
             </label>
         </div>
             
@@ -510,7 +515,51 @@
         function getDedupFlag() {
             return document.getElementById('dedupCheckbox').checked;
         }
+        async function exportToImage() {
+        const resultsElement = document.getElementById('results');
+        const exportBtn = document.getElementById('exportBtn');
+        const loading = document.getElementById('loading');
 
+        // 1. 准备工作
+        loading.innerText = "🖼️ 正在生成高清长图...";
+        loading.style.display = 'flex';
+        exportBtn.style.display = 'none'; // 导出时隐藏按钮自身
+
+        // 2. 使用 html2canvas 捕获
+        try {
+            const canvas = await html2canvas(resultsElement, {
+                useCORS: true,           // 允许跨域图片（用于头像）
+                allowTaint: true,
+                scale: 2,                // 提升清晰度
+                backgroundColor: "#f9fbfc", // 保持背景色一致
+                logging: false,
+                height: resultsElement.scrollHeight,
+                windowHeight: resultsElement.scrollHeight
+            });
+
+            // 3. 转化为图片并下载
+            const link = document.createElement('a');
+            const timestamp = new Date().getTime();
+            link.download = `QQ聊天记录分析_${timestamp}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        } catch (err) {
+            console.error("导出失败:", err);
+            alert("导出长图失败，可能是由于数据量过大或图片跨域。");
+        } finally {
+            loading.style.display = 'none';
+            loading.innerText = "📊 正在全速分析中...";
+            exportBtn.style.display = 'inline-block';
+        }
+    }
+
+    // 修改现有的 startAnalysis 函数，在分析完成后显示按钮
+    // 找到 processData 函数的末尾，添加显示按钮的代码
+    const originalProcessData = processData;
+    processData = function(jsonString) {
+        originalProcessData(jsonString);
+        document.getElementById('exportBtn').style.display = 'inline-block';
+    };
         function startAnalysis() {
             const fileInput = document.getElementById('fileInput');
             const jsonInput = document.getElementById('jsonInput').value.trim();
@@ -590,7 +639,8 @@
 
             // 4. 内容深度分析 (文本 + 表情)
             const excludedQQs = getExcludedQQSet();
-            const analysis = analyzeContent(data.messages, excludedQQs);
+            const allNames = Array.from(senderInfoMap.keys()).filter(name => name.length > 0);
+            const analysis = analyzeContent(data.messages, excludedQQs, allNames);
             
             // 5. 渲染表情排行
             renderEmojis(analysis.emojiCounts);
@@ -640,34 +690,59 @@
     }
         
         // === 核心修改：接收 excludedQQs 参数并在热词统计时跳过，并更新英文正则匹配逻辑 ===
-        function analyzeContent(messages, excludedQQs) {
-            const chineseWordCounts = {};
-            const englishWordCounts = {};
-            const emojiCounts = {};
-            const deduplicate = getDedupFlag();
-            const unicodeEmojiRegex = /(\p{RI}\p{RI}|\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu;
-            // 匹配中文(2字以上)
-            const chineseRegex = /[\u4e00-\u9fa5]{2,}/g; 
-            // 匹配完整的英文单词 (至少4个字母)，使用 \b 单词边界
-            const englishRegex = /\b[a-zA-Z]{4,}\b/g;
+        function analyzeContent(messages, excludedQQs, allNames) {
+        const chineseWordCounts = {};
+        const englishWordCounts = {};
+        const emojiCounts = {};
+        const deduplicate = getDedupFlag();
+        const unicodeEmojiRegex = /(\p{RI}\p{RI}|\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu;
+        const chineseRegex = /[\u4e00-\u9fa5]{2,}/g; 
+        const englishRegex = /\b[a-zA-Z]{4,}\b/g;
 
-            messages.forEach(msg => {
-                // 排除逻辑：如果消息发送者 (sender.uin) 在 excludedQQs 集合中，则跳过热词统计。
-                // *注意：表情包统计仍保留，因为用户没有明确要求排除*
-                const senderUin = msg.sender && msg.sender.uin ? String(msg.sender.uin) : null;
-                const shouldExcludeForWords = senderUin && excludedQQs.has(senderUin);
+        // --- 动态构建提及排除正则 ---
+        let mentionRegex = null;
+        if (allNames && allNames.length > 0) {
+            // 按照长度降序排序名字，防止短名字先匹配导致长名字剩余（例如先匹配了 @A 而不是 @ABC）
+            // 并转义正则特殊字符
+            const escapedNames = allNames
+                .sort((a, b) => b.length - a.length)
+                .map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                .filter(name => name.length > 0)
+                .join('|');
+            
+            if (escapedNames) {
+                mentionRegex = new RegExp(`@(${escapedNames})`, 'g');
+            }
+        }
+
+        messages.forEach(msg => {
+            // 排除逻辑：判断发送者是否在黑名单
+            const senderUin = msg.sender && msg.sender.uin ? String(msg.sender.uin) : null;
+            const shouldExcludeForWords = senderUin && excludedQQs.has(senderUin);
+            
+            if (!msg.content) return;
+
+            // 如果该消息发送者被排除，且没有表情包（表情包统计不在排除之列），则跳过
+            if (shouldExcludeForWords && !msg.content.emojis) return;
+
+            if (msg.content.text) {
+                let text = msg.content.text;
+
+                // 1. 基础清理：回复、图片、链接
+                text = text.replace(/\[回复[^\]]*\]/g, '')
+                        .replace(/\[图片:[^\]]*\]/g, '')
+                        .replace(/https?:\/\/\S+/g, '');
+
+                // 2. 核心改进：排除特定 @用户名
+                if (mentionRegex) {
+                    text = text.replace(mentionRegex, '');
+                }
                 
-                if (!msg.content) return;
+                // 3. 兜底清理：排除剩余的 @非空白字符
+                text = text.replace(/@\S+/g, '');
 
-                if (msg.content.text) {
-                    let text = msg.content.text;
-                    // 1. 清理文本用于分词
-                    text = text.replace(/\[回复.*?\]/g, '') 
-                               .replace(/@[\w\u4e00-\u9fa5]+/g, '') 
-                               .replace(/https?:\/\/\S+/g, '');
-
-                    // === 排除开始 ===
-                    if (!shouldExcludeForWords) {
+                // --- 开始内容统计 (如果不在排除名单中) ---
+                if (!shouldExcludeForWords) {
                     // 每条消息内的去重集合
                     const seenEmoji = new Set();
                     const seenCn = new Set();
@@ -706,7 +781,7 @@
                         englishWordCounts[lowerCaseWord] = (englishWordCounts[lowerCaseWord] || 0) + 1;
                     });
 
-                    // 5. QQ 专有表情
+                    // 5. QQ 专有表情统计
                     if (msg.content.emojis && Array.isArray(msg.content.emojis)) {
                         msg.content.emojis.forEach(e => {
                             const key = /^\d+$/.test(e.id) ? e.id : e.name;
@@ -715,13 +790,21 @@
                             emojiCounts[key] = (emojiCounts[key] || 0) + 1;
                         });
                     }
-                    }
                 }
-            });
+            } else if (msg.content.emojis && !shouldExcludeForWords) {
+                // 处理纯表情消息（无 text 的情况）
+                const seenQQEmoji = new Set();
+                msg.content.emojis.forEach(e => {
+                    const key = /^\d+$/.test(e.id) ? e.id : e.name;
+                    if (deduplicate && seenQQEmoji.has(key)) return;
+                    seenQQEmoji.add(key);
+                    emojiCounts[key] = (emojiCounts[key] || 0) + 1;
+                });
+            }
+        });
 
-            return { chineseWordCounts, englishWordCounts, emojiCounts };
-        }
-        
+        return { chineseWordCounts, englishWordCounts, emojiCounts };
+    }
         // --- 活跃时段分析函数 ---
         function analyzeActivity(messages) {
             const hourCounts = Array(24).fill(0); // 0点到23点
@@ -897,40 +980,107 @@
 
         // === 核心修改：接收 wordCounts 和 containerId ===
         function renderHotWords(wordCounts, containerId) {
-            const container = document.getElementById(containerId);
-            container.innerHTML = '';
-            
-            const sorted = Object.entries(wordCounts)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 60); // 取前60个词
-            
-            if (sorted.length === 0) {
-                container.textContent = '暂无符合筛选条件的热词。';
-                container.style.justifyContent = 'flex-start';
-                container.style.padding = '10px';
-                return;
+    const container = document.getElementById(containerId);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const width = container.offsetWidth;
+    const height = 400; 
+    canvas.width = width * 2; 
+    canvas.height = height * 2;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    ctx.scale(2, 2); 
+
+    container.innerHTML = '';
+    container.appendChild(canvas);
+
+    const words = Object.entries(wordCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 80);
+
+    if (words.length === 0) {
+        ctx.font = '16px sans-serif';
+        ctx.fillStyle = '#666';
+        ctx.fillText('暂无数据', width / 2 - 20, height / 2);
+        return;
+    }
+
+    const maxVal = words[0][1];
+    const minVal = words[words.length - 1][1];
+    const placedBoxes = [];
+
+    words.forEach(([text, count], index) => {
+        const weight = Math.sqrt((count - minVal) / (maxVal - minVal || 1));
+        // 稍微调低初始最大字号，预留更多空间防止溢出
+        let fontSize = 14 + weight * 42; 
+        
+        let placed = false;
+        let attempts = 0;
+
+        // 尝试放置循环
+        while (!placed && attempts < 600) {
+            ctx.font = `bold ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+            const metrics = ctx.measureText(text);
+            const w = metrics.width + 10;
+            const h = fontSize * 1.1;
+
+            // 螺旋参数
+            let angle = 0.1 * attempts;
+            let radius = 1.2 * attempts;
+            let x = width / 2 + radius * Math.cos(angle);
+            let y = height / 2 + radius * Math.sin(angle) * 0.75;
+
+            // --- 核心优化：边界检测 ---
+            const isInside = (
+                x - w/2 > 5 && 
+                x + w/2 < width - 5 && 
+                y - h/2 > 5 && 
+                y + h/2 < height - 5
+            );
+
+            if (isInside) {
+                // 碰撞检测
+                const colliding = placedBoxes.some(box => {
+                    return !(x + w/2 < box.x - box.w/2 || 
+                            x - w/2 > box.x + box.w/2 || 
+                            y + h/2 < box.y - box.h/2 || 
+                            y - h/2 > box.y + box.h/2);
+                });
+
+                if (!colliding) {
+                    // 成功放置
+                    const opacity = 0.5 + (weight * 0.5);
+                    const hue = 210 - (weight * 30);
+                    const lightness = 65 - (weight * 25);
+                    
+                    ctx.globalAlpha = opacity;
+                    ctx.fillStyle = `hsl(${hue}, 80%, ${lightness}%)`;
+                    ctx.textBaseline = 'middle';
+                    ctx.textAlign = 'center';
+                    
+                    if (index < 5) {
+                        ctx.shadowColor = 'rgba(0,0,0,0.1)';
+                        ctx.shadowBlur = 3;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
+
+                    ctx.fillText(text, x, y);
+                    placedBoxes.push({ x, y, w, h });
+                    placed = true;
+                }
             }
-            container.style.justifyContent = 'center';
 
-            const maxVal = sorted[0][1];
-
-            sorted.forEach(([word, count]) => {
-                const tag = document.createElement('span');
-                tag.className = 'tag';
-                tag.textContent = word;
-                tag.title = `${count} 次`;
-                
-                // 简单的字体大小映射
-                const size = 0.8 + (count / maxVal) * 1.5; 
-                tag.style.fontSize = `${Math.min(size, 2.5)}rem`;
-                
-                // 随机透明度，让高频词更深色
-                const opacity = 0.5 + (count / maxVal) * 0.5;
-                tag.style.opacity = opacity;
-
-                container.appendChild(tag);
-            });
+            attempts++;
+            // 如果尝试多次放不下，每50次尝试缩小一点字号
+            if (attempts % 50 === 0) {
+                fontSize -= 2;
+                if (fontSize < 10) attempts = 1000; // 字号太小就放弃，避免死循环
+            }
         }
+    });
+}
     </script>
 </body>
 </html>
