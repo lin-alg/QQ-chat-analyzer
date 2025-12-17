@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ聊天记录深度分析器 v2.0</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-light: #818cf8;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 40px 0;
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            border-radius: 20px;
+            color: white;
+            box-shadow: var(--shadow);
+        }
+        header h1 { margin: 0; font-size: 2.5rem; letter-spacing: -1px; }
+        header p { opacity: 0.9; margin-top: 10px; font-size: 1.1rem; }
+
+        /* Input Area */
+        .controls {
+            background: var(--surface);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            margin-bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            border: 1px solid var(--border);
+        }
+        
+        .file-upload-wrapper {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 15px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            resize: vertical;
+            font-family: monospace;
+            box-sizing: border-box;
+            transition: border-color 0.3s;
+        }
+        textarea:focus { outline: none; border-color: var(--primary); }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
+        }
+        button:hover { background-color: #4338ca; transform: translateY(-1px); }
+
+        /* Dashboard Layout */
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 25px;
+            display: none; /* Hidden by default */
+        }
+
+        .card {
+            background: var(--surface);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .col-4 { grid-column: span 4; }
+        .col-6 { grid-column: span 6; } /* 新增 */
+        .col-8 { grid-column: span 8; }
+        .col-12 { grid-column: span 12; }
+        
+        @media (max-width: 1024px) {
+            .col-4, .col-6, .col-8 { grid-column: span 12; }
+        }
+
+        h2 {
+            color: var(--text-main);
+            font-size: 1.25rem;
+            margin-top: 0;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--bg);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Stats Overview */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 20px;
+        }
+        .stat-box {
+            background: var(--bg);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .stat-num { display: block; font-size: 1.8rem; font-weight: 700; color: var(--primary); }
+        .stat-label { font-size: 0.875rem; color: var(--text-sub); margin-top: 5px; }
+
+        /* Tables */
+        .table-wrap {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th { 
+            text-align: left; 
+            padding: 12px 15px; 
+            background: var(--bg); 
+            color: var(--text-sub);
+            position: sticky;
+            top: 0;
+            font-weight: 600;
+        }
+        td { padding: 12px 15px; border-bottom: 1px solid var(--border); }
+        tr:last-child td { border-bottom: none; }
+        .rank-num { 
+            display: inline-block; 
+            width: 24px; 
+            height: 24px; 
+            line-height: 24px; 
+            text-align: center; 
+            border-radius: 50%; 
+            background: #e0e7ff; 
+            color: var(--primary); 
+            font-size: 0.8rem; 
+            font-weight: bold; 
+        }
+        tr:nth-child(1) .rank-num { background: #fee2e2; color: #ef4444; }
+        tr:nth-child(2) .rank-num { background: #ffedd5; color: #f97316; }
+        tr:nth-child(3) .rank-num { background: #fef9c3; color: #eab308; }
+
+        /* Emoji Specific */
+        .emoji-display {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            font-size: 32px; /* For Unicode emojis */
+        }
+        .emoji-img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            transition: transform 0.2s;
+        }
+        .emoji-img:hover { transform: scale(1.2); }
+
+        /* Word Cloud */
+        .cloud-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            padding: 20px;
+            min-height: 100px; /* 确保容器可见 */
+        }
+        .tag {
+            background: #f1f5f9;
+            padding: 5px 12px;
+            border-radius: 20px;
+            color: var(--text-sub);
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            cursor: default;
+        }
+        .tag:hover {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            font-size: 1.5rem;
+            color: var(--primary);
+            font-weight: bold;
+            display: none;
+        }
+        
+        /* New Styling for Exclusion */
+        .exclusion-setup {
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+            margin-top: 10px;
+        }
+        .exclusion-input-wrapper {
+            margin-top: 10px;
+        }
+        .qq-input {
+            width: 100%;
+            height: 80px; /* 调整高度 */
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            resize: vertical;
+            font-family: monospace;
+            box-sizing: border-box;
+            font-size: 0.9rem;
+        }
+        
+    </style>
+</head>
+<body>
+
+    <div id="loading" class="loading-overlay">📊 正在全速分析中...</div>
+
+    <div class="container">
+        <header>
+            <h1>QQ聊天记录深度分析器</h1>
+        </header>
+
+        <div class="controls">
+            <div class="file-upload-wrapper">
+                <input type="file" id="fileInput" accept=".json" style="flex: 1;">
+                <button onclick="startAnalysis()">🚀 开始分析</button>
+            </div>
+            <textarea id="jsonInput" placeholder="或者直接将 JSON 内容粘贴到这里..."></textarea>
+            
+            <div class="exclusion-setup">
+                <label>
+                    <input type="checkbox" id="excludeCheckbox" onchange="toggleExclusionInput()">
+                    排除指定成员 (如机器人)
+                </label>
+                <div id="exclusionInputWrapper" class="exclusion-input-wrapper" style="display: none;">
+                    <p style="font-size: 0.9rem; color: var(--text-sub); margin: 5px 0;">请按行输入要排除的成员 QQ 号：</p>
+                    <textarea id="excludedQQList" class="qq-input" placeholder="例如：
+10001
+2854204576
+31415926"></textarea>
+                </div>
+            </div>
+            
+        </div>
+
+        <div id="results" class="dashboard">
+            
+            <div class="card col-12" id="overviewCard">
+                </div>
+            
+            <div class="card col-12">
+                <h2>⏰ 活跃时段统计 (24小时制)</h2>
+                <div style="height: 300px;">
+                    <canvas id="activityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card col-4">
+                <h2>😜 表情包 Top 50</h2>
+                <div class="table-wrap">
+                    <table id="emojiTable">
+                        <thead>
+                            <tr>
+                                <th width="60">排名</th>
+                                <th>表情</th>
+                                <th>次数</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card col-8">
+                <h2>🏆 龙王排行榜</h2>
+                <div class="table-wrap">
+                    <table id="speakerTable">
+                        <thead>
+                            <tr>
+                                <th width="60">排名</th>
+                                <th>用户</th>
+                                <th>消息数</th>
+                                <th>活跃度</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card col-6">
+                <h2>中文聊天热词 (智能过滤)</h2>
+                <div class="cloud-container" id="chineseWordCloud"></div>
+            </div>
+            
+            <div class="card col-6">
+                <h2>英文/代码热词 (智能过滤)</h2>
+                <div class="cloud-container" id="englishWordCloud"></div>
+            </div>
+            </div>
+    </div>
+
+    <script>
+        // === 配置项 ===
+        
+        // 过滤掉无意义的高频词
+        const STOP_WORDS = new Set([
+            // === 现有中文停用词  ===
+            "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这", "那", "有", "个", "之", "为", "对", "能", "被", "让", "它", "与", "及", "等", "或", 
+            
+            // === 聊天、系统相关词  ===
+            "图片", "表情", "回复", "消息", "撤回", "系统", "提示", "加入", "退出", "邀请", "群聊", "群聊的聊天记录","聊天记录","合并转发","查看","条转发消息","用户","文件","卡片消息","视频","小程序","动画表情","的聊天记录","游戏名称",
+
+            
+            // === 通用链接/文件后缀 ===
+            "http", "https", "com", "www", "net", "org",  
+            
+            // ====================================================
+            // === 英文高频普通词 ===
+            "the", "and", "but", "for", "are", "you", "that", "this", "what", "with", "from", "have", "they", "just", "like", "know", "when", "don", "can", "get", "out", "only", "need", "about", "your", "all", "its", "too", "will", "would", "should", "could", "here", "there", "them", "which", "then", "into", "some", "more", "much", "time", "day", "was", "has", "had", "been", "make", "take", "look", "back", "thing", "even", "than", "well",
+            
+            // === 常见编程/技术词汇  ===
+            "code", "data", "test", "class", "function", "const", "var", "let", "return", "import", "export", "async", "await", "error", "null", "undefined", "true", "false", "system", "server", "client", "request", "response", "project", "stack", "overflow", "version", "update", "patch", "pull", "push", "main", "branch", "master", "commit", "config", "setup", "build", "script", "module", "string", "number", "array", "object", "value", "local", "remote", "status", "debug", "release",
+            
+            // === 常见文件/技术后缀 (扩充) ===
+            "json", "html", "css", "js", "java", "py", "sh", "cpp", "exe", "apk", "zip", "rar", "tar", "gz", "ini", "log", "yaml", "xml", "md", "txt", "pdf", "vue", "react", "node", "npm", "yarn", "docker", "k8s", "linux", "macos", "window",
+
+            // === QQ消息结构体相关字段 ===
+            "title", "color", "size", "msg", "item", "summary", "source", "flag", "name", "action", "encoding", "utf", "standalone", "yes", "serviceid", "templateid", "viewmultimsg", "brief", "filename", "resid", "tsum", "layout",  "mqqapi", "enter", "inlinecmd", "command", "reply", "text", "markdown", "mention"
+
+        ]);
+        
+        // 用于存储 Chart.js 实例
+        let activityChartInstance = null;
+        
+        // 用于存储 UIN 对应的信息，在 processData 中初始化
+        let senderInfoMap = new Map(); 
+
+        // --- 新增函数：切换排除QQ号输入框的显示 ---
+        function toggleExclusionInput() {
+            const checkbox = document.getElementById('excludeCheckbox');
+            const wrapper = document.getElementById('exclusionInputWrapper');
+            wrapper.style.display = checkbox.checked ? 'block' : 'none';
+        }
+
+        // --- 新增函数：获取要排除的 QQ 号集合 ---
+        function getExcludedQQSet() {
+            const checkbox = document.getElementById('excludeCheckbox');
+            if (!checkbox.checked) {
+                return new Set();
+            }
+            
+            const input = document.getElementById('excludedQQList').value;
+            // 按行分割，过滤掉空行，并转为 Set 方便查找
+            const qqArray = input.split('\n')
+                                 .map(qq => qq.trim())
+                                 .filter(qq => qq.length > 0 && /^\d+$/.test(qq)); // 确保是数字
+            return new Set(qqArray);
+        }
+
+        function startAnalysis() {
+            const fileInput = document.getElementById('fileInput');
+            const jsonInput = document.getElementById('jsonInput').value.trim();
+            const loading = document.getElementById('loading');
+            
+            loading.style.display = 'flex';
+
+            // 延时执行以允许 UI 渲染 Loading
+            setTimeout(() => {
+                if (fileInput.files.length > 0) {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        try {
+                            processData(event.target.result);
+                        } catch(e) {
+                            alert("文件解析失败：" + e.message);
+                        } finally {
+                            loading.style.display = 'none';
+                        }
+                    };
+                    reader.readAsText(fileInput.files[0]);
+                } else if (jsonInput) {
+                    try {
+                        processData(jsonInput);
+                    } catch(e) {
+                        alert("JSON 格式错误");
+                    } finally {
+                        loading.style.display = 'none';
+                    }
+                } else {
+                    alert('请上传文件或粘贴内容');
+                    loading.style.display = 'none';
+                }
+            }, 100);
+        }
+        
+        // 新增函数：扫描消息记录，建立 uin -> senderInfo 映射
+        function extractSenderInfo(messages) {
+            const infoMap = new Map();
+            messages.forEach(msg => {
+                const sender = msg.sender;
+                if (sender && sender.uin) {
+                    const uin = String(sender.uin);
+                    // 仅在 name 不为空时更新，避免被后面 name 为空的记录覆盖
+                    if (sender.name && sender.name !== '') {
+                        infoMap.set(sender.name, {
+                            name: sender.name,
+                            uin: uin,
+                            uid: sender.uid || null
+                        });
+                    } else if (!infoMap.has(uin)) {
+                         // 如果 map 中还没有记录，则先用 uin/uid 占位
+                         infoMap.set(sender.name, {
+                            name: uin, // 默认使用 uin 作为名字
+                            uin: uin,
+                            uid: sender.uid || null
+                        });
+                    }
+                }
+            });
+            return infoMap;
+        }
+
+
+        function processData(jsonString) {
+            const data = JSON.parse(jsonString);
+            document.getElementById('results').style.display = 'grid';
+
+            // 1. 提取并存储发信人信息映射表 (哈希表)
+            senderInfoMap = extractSenderInfo(data.messages);
+
+            // 2. 基础概览
+            renderOverview(data);
+
+            // 3. 发言排行 (传入映射表)
+            renderSpeakers(data.statistics.senders, senderInfoMap);
+
+            // 4. 内容深度分析 (文本 + 表情)
+            const excludedQQs = getExcludedQQSet();
+            const analysis = analyzeContent(data.messages, excludedQQs);
+            
+            // 5. 渲染表情排行
+            renderEmojis(analysis.emojiCounts);
+
+            // 6. 渲染热词 (分别渲染中文和英文)
+            renderHotWords(analysis.chineseWordCounts, 'chineseWordCloud');
+            renderHotWords(analysis.englishWordCounts, 'englishWordCloud');
+            
+            // 7. 活跃时段分析
+            const activityData = analyzeActivity(data.messages);
+            renderActivityChart(activityData);
+        }
+
+        function renderOverview(data) {
+            const card = document.getElementById('overviewCard');
+            const startDate = new Date(data.statistics.timeRange.start).toLocaleDateString('zh-CN', {
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric'
+        });
+        const endDate = new Date(data.statistics.timeRange.end).toLocaleDateString('zh-CN', {
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric'
+        });
+
+        card.innerHTML = `
+            <h2>📊 聊天概览 - ${data.chatInfo.name || '未命名群聊'}</h2>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <span class="stat-num" style="font-size:1.2rem; line-height:2.2rem">${startDate}</span>
+                    <span class="stat-label">开始时间</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-num" style="font-size:1.2rem; line-height:2.2rem">${endDate}</span>
+                    <span class="stat-label">结束时间</span>
+                </div>
+            </div>
+        `;
+        }
+        
+        // === 核心修改：接收 excludedQQs 参数并在热词统计时跳过，并更新英文正则匹配逻辑 ===
+        function analyzeContent(messages, excludedQQs) {
+            const chineseWordCounts = {};
+            const englishWordCounts = {};
+            const emojiCounts = {};
+            
+            const unicodeEmojiRegex = /(\p{RI}\p{RI}|\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu;
+            // 匹配中文(2字以上)
+            const chineseRegex = /[\u4e00-\u9fa5]{2,}/g; 
+            // 匹配完整的英文单词 (至少4个字母)，使用 \b 单词边界
+            const englishRegex = /\b[a-zA-Z]{4,}\b/g;
+
+            messages.forEach(msg => {
+                // 排除逻辑：如果消息发送者 (sender.uin) 在 excludedQQs 集合中，则跳过热词统计。
+                // *注意：表情包统计仍保留，因为用户没有明确要求排除*
+                const senderUin = msg.sender && msg.sender.uin ? String(msg.sender.uin) : null;
+                const shouldExcludeForWords = senderUin && excludedQQs.has(senderUin);
+                
+                if (!msg.content) return;
+
+                if (msg.content.text) {
+                    let text = msg.content.text;
+                    // 1. 清理文本用于分词
+                    text = text.replace(/\[回复.*?\]/g, '') 
+                               .replace(/@[\w\u4e00-\u9fa5]+/g, '') 
+                               .replace(/https?:\/\/\S+/g, '');
+
+                    // === 排除开始 ===
+                    if (!shouldExcludeForWords) {
+                        // 2. 提取 Unicode 表情 
+                        const uMatches = text.match(unicodeEmojiRegex);
+                        if (uMatches) {
+                            uMatches.forEach(emoji => {
+                                if (emoji.trim().length > 0) {
+                                    emojiCounts[emoji] = (emojiCounts[emoji] || 0) + 1;
+                                }
+                            });
+                        }
+
+                        // 3. 统计中文热词
+                        const chineseWords = text.match(chineseRegex) || [];
+                        chineseWords.forEach(word => {
+                            if (STOP_WORDS.has(word)) return;
+                            chineseWordCounts[word] = (chineseWordCounts[word] || 0) + 1;
+                        });
+                        
+                        // 4. 统计英文热词
+                        const englishWords = text.match(englishRegex) || [];
+                        englishWords.forEach(word => {
+                            const lowerCaseWord = word.toLowerCase(); 
+                            
+                            // 由于正则已经要求 {4,}，且有了 \b，这里不再需要额外的长度 3 过滤
+                            
+                            if (STOP_WORDS.has(lowerCaseWord)) return;
+                            // 过滤掉纯数字或纯符号的词 (虽然 \b[a-zA-Z]4,\b 应该已经排除了，但以防万一)
+                            if (/^[\d\W]+$/.test(lowerCaseWord)) return; 
+                            
+                            englishWordCounts[lowerCaseWord] = (englishWordCounts[lowerCaseWord] || 0) + 1;
+                        });
+                        // 5. 提取 QQ 专有表情 (数组形式)
+                        if (msg.content.emojis && Array.isArray(msg.content.emojis)) {
+                            msg.content.emojis.forEach(e => {
+                                if (/^\d+$/.test(e.id)) {
+                                    emojiCounts[e.id] = (emojiCounts[e.id] || 0) + 1; //如果id是数字，则匹配QQ默认表情
+                                }
+                                else{
+                                    emojiCounts[e.name] = (emojiCounts[e.name] || 0) + 1;
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+
+            return { chineseWordCounts, englishWordCounts, emojiCounts };
+        }
+        
+        // --- 活跃时段分析函数 ---
+        function analyzeActivity(messages) {
+            const hourCounts = Array(24).fill(0); // 0点到23点
+            
+            messages.forEach(msg => {
+                const timeString = msg.time || msg.timestamp; 
+                if (timeString) {
+                    const date = new Date(timeString);
+                    
+                    if (!isNaN(date)) { 
+                        // 将 UTC 时间转换为北京时间 (UTC+8)
+                        const hour = (date.getUTCHours() + 8) % 24; 
+
+                        if (hour >= 0 && hour < 24) {
+                            hourCounts[hour]++;
+                        }
+                    }
+                }
+            });
+            
+            return hourCounts;
+        }
+
+        // --- 渲染活跃时段图表函数 ---
+        function renderActivityChart(hourCounts) {
+            const ctx = document.getElementById('activityChart').getContext('2d');
+            
+            if (activityChartInstance) {
+                activityChartInstance.destroy();
+            }
+
+            const labels = Array.from({length: 24}, (_, i) => `${i.toString().padStart(2, '0')}:00`); 
+            const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+            const primaryLightColor = getComputedStyle(document.documentElement).getPropertyValue('--primary-light').trim();
+
+            activityChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '消息数',
+                        data: hourCounts,
+                        backgroundColor: primaryColor,
+                        borderColor: primaryColor,
+                        borderWidth: 1,
+                        borderRadius: 5,
+                        hoverBackgroundColor: primaryLightColor,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => `时间: ${items[0].label}`,
+                                label: (context) => `消息数: ${context.formattedValue}`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '消息总数'
+                            },
+                            ticks: { precision: 0 }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: '小时 (24小时制)'
+                            },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+
+        function renderEmojis(emojiCounts) {
+            const tbody = document.getElementById('emojiTable').querySelector('tbody');
+            tbody.innerHTML = '';
+
+            const sorted = Object.entries(emojiCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 50);
+
+            sorted.forEach(([key, count], index) => {
+                const tr = document.createElement('tr');
+                
+                const isNumberId = /^\d+$/.test(key);
+                
+                let displayHtml = '';
+                const unicodeEmojiRegex = /(\p{RI}\p{RI}|\p{Emoji_Presentation}|\p{Extended_Pictographic})/u;
+
+                if (isNumberId) {
+                    const imgPath = `./emojis/${key}/png/${key}.png`;
+                    displayHtml = `
+                        <div class="emoji-display">
+                            <img src="${imgPath}" class="emoji-img" title="ID: ${key}" 
+                                onerror="this.onerror=null; this.parentNode.innerHTML='<span style=\'font-size:14px; color:#999\'>ID:${key}</span>'">
+                        </div>`;
+                } else if (unicodeEmojiRegex.test(key)) {
+                    // 如果是 emoji 符号
+                    displayHtml = `<div class="emoji-display">${key}</div>`;
+                } else {
+                    // 其他情况直接展示
+                    displayHtml = `${key}`;
+                }
+
+                tr.innerHTML = `
+                    <td><span class="rank-num">${index + 1}</span></td>
+                    <td>${displayHtml}</td>
+                    <td><strong>${count}</strong></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        // 核心修改：接收 senderInfoMap 并在表格中显示头像和更准确的名字/账号
+        function renderSpeakers(senders, senderInfoMap) {
+            const tbody = document.getElementById('speakerTable').querySelector('tbody');
+            tbody.innerHTML = '';
+            
+            const sorted = senders.sort((a, b) => b.messageCount - a.messageCount).slice(0, 50);
+            
+            sorted.forEach((s, index) => {
+                const tr = document.createElement('tr');
+                const barWidth = Math.max(1, s.percentage);
+                const name = s.name;
+                
+                // 1. 从映射表中获取最新信息
+                const info = senderInfoMap.get(name) || { name: s.name, uin: 0, uid: '' };
+                const displayName = info.name && info.name !== 'unknown' ? info.name : uin; 
+                const displayUin = info.uin; 
+                const uin = info.uin;
+
+                // 2. 构造头像 URL (s=100是图片大小参数，您可以调整)
+                const avatarUrl = uin ? `https://q.qlogo.cn/g?b=qq&nk=${uin}&s=100` : ''; 
+                
+                const avatarHtml = uin ? 
+                    `<img src="${avatarUrl}" style="width:32px; height:32px; border-radius:50%; margin-right:10px; object-fit: cover;" onerror="this.style.display='none';">` :
+                    ''; // 如果没有 uin，则不显示头像
+
+                tr.innerHTML = `
+                    <td><span class="rank-num">${index + 1}</span></td>
+                    <td>
+                        <div style="display:flex; align-items:center;">
+                            ${avatarHtml}
+                            <div>
+                                <div style="font-weight:600">${displayName}</div>
+                                <div style="font-size:12px; color:#999">${displayUin || ''}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>${s.messageCount}</td>
+                    <td width="30%">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div style="flex:1; background:#e2e8f0; height:6px; border-radius:3px; overflow:hidden;">
+                                <div style="width:${barWidth}%; background:var(--primary); height:100%;"></div>
+                            </div>
+                            <span style="font-size:12px; color:var(--text-sub)">${s.percentage.toFixed(1)}%</span>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // === 核心修改：接收 wordCounts 和 containerId ===
+        function renderHotWords(wordCounts, containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            const sorted = Object.entries(wordCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 60); // 取前60个词
+            
+            if (sorted.length === 0) {
+                container.textContent = '暂无符合筛选条件的热词。';
+                container.style.justifyContent = 'flex-start';
+                container.style.padding = '10px';
+                return;
+            }
+            container.style.justifyContent = 'center';
+
+            const maxVal = sorted[0][1];
+
+            sorted.forEach(([word, count]) => {
+                const tag = document.createElement('span');
+                tag.className = 'tag';
+                tag.textContent = word;
+                tag.title = `${count} 次`;
+                
+                // 简单的字体大小映射
+                const size = 0.8 + (count / maxVal) * 1.5; 
+                tag.style.fontSize = `${Math.min(size, 2.5)}rem`;
+                
+                // 随机透明度，让高频词更深色
+                const opacity = 0.5 + (count / maxVal) * 0.5;
+                tag.style.opacity = opacity;
+
+                container.appendChild(tag);
+            });
+        }
+    </script>
+</body>
+</html>
