@@ -370,19 +370,25 @@
             <textarea id="jsonInput" placeholder="或者直接将 JSON 内容粘贴到这里..."></textarea>
             
             <div class="exclusion-setup">
-                <label>
-                    <input type="checkbox" id="excludeCheckbox" onchange="toggleExclusionInput()">
-                    排除指定成员 (如QQ机器人)
-                </label>
-                <div id="exclusionInputWrapper" class="exclusion-input-wrapper" style="display: none;">
-                    <p style="font-size: 0.9rem; color: var(--text-sub); margin: 5px 0;">请按行输入要排除的成员 QQ 号：</p>
-                    <textarea id="excludedQQList" class="qq-input" placeholder="例如：
+            <label>
+                <input type="checkbox" id="excludeCheckbox" onchange="toggleExclusionInput()">
+                排除指定成员 (如QQ机器人)
+            </label>
+            <div id="exclusionInputWrapper" class="exclusion-input-wrapper" style="display: none;">
+                <p style="font-size: 0.9rem; color: var(--text-sub); margin: 5px 0;">请按行输入要排除的成员 QQ 号：</p>
+                <textarea id="excludedQQList" class="qq-input" placeholder="例如：
 10001
 10002
 2854204576
-"></textarea>
-                </div>
+        "></textarea>
             </div>
+
+            <!-- 新增复选框 -->
+            <label style="margin-top:10px; display:block;">
+                <input type="checkbox" id="dedupCheckbox">
+                不受刷屏狗的影响（去重统计）
+            </label>
+        </div>
             
         </div>
 
@@ -452,7 +458,7 @@
             "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这", "那", "有", "个", "之", "为", "对", "能", "被", "让", "它", "与", "及", "等", "或", 
             
             // === 聊天、系统相关词  ===
-            "图片", "表情", "回复", "消息", "撤回", "系统", "提示", "加入", "退出", "邀请", "群聊", "群聊的聊天记录","聊天记录","合并转发","查看","条转发消息","用户","文件","卡片消息","视频","小程序","动画表情","的聊天记录","游戏名称",
+            "图片", "表情", "回复", "消息", "撤回", "系统", "提示", "加入", "退出", "邀请", "群聊", "群聊的聊天记录","聊天记录","合并转发","查看","条转发消息","用户","文件","卡片消息","视频","小程序","动画表情","的聊天记录","游戏名称","暂不支持该消息类型","请用手机",
 
             
             // === 通用链接/文件后缀 ===
@@ -499,6 +505,10 @@
                                  .map(qq => qq.trim())
                                  .filter(qq => qq.length > 0 && /^\d+$/.test(qq)); // 确保是数字
             return new Set(qqArray);
+        }
+        
+        function getDedupFlag() {
+            return document.getElementById('dedupCheckbox').checked;
         }
 
         function startAnalysis() {
@@ -634,7 +644,7 @@
             const chineseWordCounts = {};
             const englishWordCounts = {};
             const emojiCounts = {};
-            
+            const deduplicate = getDedupFlag();
             const unicodeEmojiRegex = /(\p{RI}\p{RI}|\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu;
             // 匹配中文(2字以上)
             const chineseRegex = /[\u4e00-\u9fa5]{2,}/g; 
@@ -658,47 +668,53 @@
 
                     // === 排除开始 ===
                     if (!shouldExcludeForWords) {
-                        // 2. 提取 Unicode 表情 
-                        const uMatches = text.match(unicodeEmojiRegex);
-                        if (uMatches) {
-                            uMatches.forEach(emoji => {
-                                if (emoji.trim().length > 0) {
-                                    emojiCounts[emoji] = (emojiCounts[emoji] || 0) + 1;
-                                }
-                            });
-                        }
+                    // 每条消息内的去重集合
+                    const seenEmoji = new Set();
+                    const seenCn = new Set();
+                    const seenEn = new Set();
+                    const seenQQEmoji = new Set();
 
-                        // 3. 统计中文热词
-                        const chineseWords = text.match(chineseRegex) || [];
-                        chineseWords.forEach(word => {
-                            if (STOP_WORDS.has(word)) return;
-                            chineseWordCounts[word] = (chineseWordCounts[word] || 0) + 1;
+                    // 2. 提取 Unicode 表情 
+                    const uMatches = text.match(unicodeEmojiRegex);
+                    if (uMatches) {
+                        uMatches.forEach(emoji => {
+                            if (emoji.trim().length > 0) {
+                                if (deduplicate && seenEmoji.has(emoji)) return;
+                                seenEmoji.add(emoji);
+                                emojiCounts[emoji] = (emojiCounts[emoji] || 0) + 1;
+                            }
                         });
-                        
-                        // 4. 统计英文热词
-                        const englishWords = text.match(englishRegex) || [];
-                        englishWords.forEach(word => {
-                            const lowerCaseWord = word.toLowerCase(); 
-                            
-                            // 由于正则已经要求 {4,}，且有了 \b，这里不再需要额外的长度 3 过滤
-                            
-                            if (STOP_WORDS.has(lowerCaseWord)) return;
-                            // 过滤掉纯数字或纯符号的词 (虽然 \b[a-zA-Z]4,\b 应该已经排除了，但以防万一)
-                            if (/^[\d\W]+$/.test(lowerCaseWord)) return; 
-                            
-                            englishWordCounts[lowerCaseWord] = (englishWordCounts[lowerCaseWord] || 0) + 1;
+                    }
+
+                    // 3. 中文热词
+                    const chineseWords = text.match(chineseRegex) || [];
+                    chineseWords.forEach(word => {
+                        if (STOP_WORDS.has(word)) return;
+                        if (deduplicate && seenCn.has(word)) return;
+                        seenCn.add(word);
+                        chineseWordCounts[word] = (chineseWordCounts[word] || 0) + 1;
+                    });
+
+                    // 4. 英文热词
+                    const englishWords = text.match(englishRegex) || [];
+                    englishWords.forEach(word => {
+                        const lowerCaseWord = word.toLowerCase();
+                        if (STOP_WORDS.has(lowerCaseWord)) return;
+                        if (/^[\d\W]+$/.test(lowerCaseWord)) return;
+                        if (deduplicate && seenEn.has(lowerCaseWord)) return;
+                        seenEn.add(lowerCaseWord);
+                        englishWordCounts[lowerCaseWord] = (englishWordCounts[lowerCaseWord] || 0) + 1;
+                    });
+
+                    // 5. QQ 专有表情
+                    if (msg.content.emojis && Array.isArray(msg.content.emojis)) {
+                        msg.content.emojis.forEach(e => {
+                            const key = /^\d+$/.test(e.id) ? e.id : e.name;
+                            if (deduplicate && seenQQEmoji.has(key)) return;
+                            seenQQEmoji.add(key);
+                            emojiCounts[key] = (emojiCounts[key] || 0) + 1;
                         });
-                        // 5. 提取 QQ 专有表情 (数组形式)
-                        if (msg.content.emojis && Array.isArray(msg.content.emojis)) {
-                            msg.content.emojis.forEach(e => {
-                                if (/^\d+$/.test(e.id)) {
-                                    emojiCounts[e.id] = (emojiCounts[e.id] || 0) + 1; //如果id是数字，则匹配QQ默认表情
-                                }
-                                else{
-                                    emojiCounts[e.name] = (emojiCounts[e.name] || 0) + 1;
-                                }
-                            });
-                        }
+                    }
                     }
                 }
             });
