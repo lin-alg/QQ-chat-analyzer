@@ -370,7 +370,6 @@
             <div class="file-upload-wrapper">
                 <input type="file" id="fileInput" accept=".json" style="flex: 1;">
                 <button onclick="startAnalysis()">🚀 开始分析</button>
-                <button id="exportBtn" onclick="exportToImage()" style="background-color: #10b981; display: none;">📸 导出长图</button>
             </div>
             <textarea id="jsonInput" placeholder="或者直接将 JSON 内容粘贴到这里..."></textarea>
             
@@ -515,50 +514,11 @@
         function getDedupFlag() {
             return document.getElementById('dedupCheckbox').checked;
         }
-        async function exportToImage() {
-        const resultsElement = document.getElementById('results');
-        const exportBtn = document.getElementById('exportBtn');
-        const loading = document.getElementById('loading');
-
-        // 1. 准备工作
-        loading.innerText = "🖼️ 正在生成高清长图...";
-        loading.style.display = 'flex';
-        exportBtn.style.display = 'none'; // 导出时隐藏按钮自身
-
-        // 2. 使用 html2canvas 捕获
-        try {
-            const canvas = await html2canvas(resultsElement, {
-                useCORS: true,           // 允许跨域图片（用于头像）
-                allowTaint: true,
-                scale: 2,                // 提升清晰度
-                backgroundColor: "#f9fbfc", // 保持背景色一致
-                logging: false,
-                height: resultsElement.scrollHeight,
-                windowHeight: resultsElement.scrollHeight
-            });
-
-            // 3. 转化为图片并下载
-            const link = document.createElement('a');
-            const timestamp = new Date().getTime();
-            link.download = `QQ聊天记录分析_${timestamp}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-        } catch (err) {
-            console.error("导出失败:", err);
-            alert("导出长图失败，可能是由于数据量过大或图片跨域。");
-        } finally {
-            loading.style.display = 'none';
-            loading.innerText = "📊 正在全速分析中...";
-            exportBtn.style.display = 'inline-block';
-        }
-    }
-
-    // 修改现有的 startAnalysis 函数，在分析完成后显示按钮
+            // 修改现有的 startAnalysis 函数，在分析完成后显示按钮
     // 找到 processData 函数的末尾，添加显示按钮的代码
     const originalProcessData = processData;
     processData = function(jsonString) {
         originalProcessData(jsonString);
-        document.getElementById('exportBtn').style.display = 'inline-block';
     };
         function startAnalysis() {
             const fileInput = document.getElementById('fileInput');
